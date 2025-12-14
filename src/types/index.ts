@@ -11,6 +11,9 @@ export type AccountStatus = 'active' | 'error' | 'disconnected' | 'pending';
 // Message status for tracking
 export type MessageStatus = 'new' | 'read' | 'replied' | 'archived';
 
+// Conversation status
+export type ConversationStatus = 'open' | 'closed' | 'archived';
+
 // ============================================================================
 // Account Types
 // ============================================================================
@@ -73,6 +76,9 @@ export interface UnifiedMessage {
   
   // Provider-specific ID for deduplication
   providerMessageId: string;           // The Message-ID header from email
+  
+  // Conversation linking
+  conversationId?: string;             // Which conversation this belongs to
   
   // Threading
   threadId?: string;                   // For grouping related messages
@@ -195,11 +201,59 @@ export interface MessageFilters {
   since?: string;                      // ISO date
   until?: string;                      // ISO date
   threadId?: string;
+  conversationId?: string;             // Filter by conversation
   isRead?: boolean;
   isOutgoing?: boolean;
   hasAttachments?: boolean;
   limit?: number;
   offset?: number;
   search?: string;                     // Search in subject/body (Phase 2)
+}
+
+// ============================================================================
+// Conversation Types
+// ============================================================================
+
+export interface Conversation {
+  id: string;                          // Unique ID
+  accountId: string;                   // Which email account
+  clientId: string;                    // Multi-tenant identifier
+  
+  // Display
+  subject: string;                     // Normalized subject (without Re:, Fwd:)
+  snippet: string;                     // Preview of last message (first ~100 chars)
+  
+  // Participants
+  participants: EmailAddress[];        // All people involved in the conversation
+  lastSender: EmailAddress;            // Who sent the last message
+  
+  // Status
+  status: ConversationStatus;
+  
+  // Counts
+  messageCount: number;
+  unreadCount: number;
+  
+  // Timestamps
+  lastMessageAt: string;               // ISO date of last message
+  createdAt: string;                   // When conversation started
+  closedAt?: string;                   // When conversation was closed (if closed)
+  
+  // For matching incoming emails to this conversation
+  threadIds: string[];                 // All Message-IDs that belong to this thread
+}
+
+// For API responses with embedded messages
+export interface ConversationWithMessages extends Conversation {
+  messages: UnifiedMessage[];
+}
+
+export interface ConversationFilters {
+  accountId?: string;
+  clientId?: string;
+  status?: ConversationStatus;
+  limit?: number;
+  offset?: number;
+  search?: string;                     // Search in subject/participants
 }
 

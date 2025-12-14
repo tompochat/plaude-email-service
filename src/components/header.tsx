@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Mail, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/ui";
 import { syncApi } from "@/lib/api";
 import { useState } from "react";
 import { toast } from "sonner";
+import { MailIcon } from "@/components/icons/mail-icon";
 
 export function Header() {
   const pathname = usePathname();
@@ -29,7 +30,7 @@ export function Header() {
     <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex h-14 items-center px-4 gap-4">
         <Link href="/" className="flex items-center gap-2 font-semibold">
-          <Mail className="h-5 w-5" />
+          <MailIcon className="h-5 w-5" />
           <span>Mail Service</span>
         </Link>
         

@@ -7,6 +7,7 @@
 import { getStorage } from '@/lib/storage';
 import { getProvider } from '@/lib/providers';
 import { accountService } from './account.service';
+import { conversationService } from './conversation.service';
 import { 
   UnifiedMessage, 
   SyncResult, 
@@ -126,9 +127,29 @@ class SyncService {
         }
       }
       
-      // Save new messages
+      // Save new messages and assign to conversations
       if (newMessages.length > 0) {
         await this.storage.saveMessages(newMessages);
+        
+        // Assign each message to a conversation
+        for (const message of newMessages) {
+          try {
+            // Find or create conversation for this message
+            const conversation = await conversationService.findOrCreateConversation(message);
+            
+            // Update message with conversation ID
+            await this.storage.updateMessage(message.id, { 
+              conversationId: conversation.id 
+            });
+            
+            // If this isn't the first message in the conversation, update stats
+            if (conversation.messageCount > 1) {
+              await conversationService.addMessageToConversation(conversation.id, message);
+            }
+          } catch (convError) {
+            console.error(`Failed to assign conversation to message ${message.id}:`, convError);
+          }
+        }
       }
       
       // Update sync state

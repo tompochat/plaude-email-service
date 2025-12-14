@@ -13,7 +13,9 @@ import {
   UnifiedMessage, 
   SyncState,
   MessageFilters,
-  AttachmentInfo
+  AttachmentInfo,
+  Conversation,
+  ConversationFilters
 } from '@/types';
 
 // ============================================================================
@@ -24,6 +26,7 @@ const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
 const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
 const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json');
 const SYNC_STATE_FILE = path.join(DATA_DIR, 'sync-state.json');
+const CONVERSATIONS_FILE = path.join(DATA_DIR, 'conversations.json');
 
 // ============================================================================
 // File Operations with Locking
@@ -131,6 +134,10 @@ export class JsonStorage implements StorageAdapter {
     
     if (filters.threadId) {
       messages = messages.filter(m => m.threadId === filters.threadId);
+    }
+    
+    if (filters.conversationId) {
+      messages = messages.filter(m => m.conversationId === filters.conversationId);
     }
     
     if (filters.since) {
@@ -275,6 +282,112 @@ export class JsonStorage implements StorageAdapter {
   async getAttachmentsByMessage(messageId: string): Promise<AttachmentInfo[]> {
     const message = await this.getMessage(messageId);
     return message?.attachments || [];
+  }
+
+  // =========================================================================
+  // Conversation Operations
+  // =========================================================================
+  
+  async getConversations(filters: ConversationFilters): Promise<Conversation[]> {
+    let conversations = await readJsonFile<Conversation[]>(CONVERSATIONS_FILE, []);
+    
+    // Apply filters
+    if (filters.accountId) {
+      conversations = conversations.filter(c => c.accountId === filters.accountId);
+    }
+    
+    if (filters.clientId) {
+      conversations = conversations.filter(c => c.clientId === filters.clientId);
+    }
+    
+    if (filters.status) {
+      conversations = conversations.filter(c => c.status === filters.status);
+    }
+    
+    if (filters.search) {
+      const searchLower = filters.search.toLowerCase();
+      conversations = conversations.filter(c => 
+        c.subject.toLowerCase().includes(searchLower) ||
+        c.participants.some(p => 
+          p.address.toLowerCase().includes(searchLower) ||
+          p.name?.toLowerCase().includes(searchLower)
+        )
+      );
+    }
+    
+    // Sort by last message (newest first)
+    conversations.sort((a, b) => 
+      new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
+    );
+    
+    // Apply pagination
+    const offset = filters.offset || 0;
+    const limit = filters.limit || 50;
+    
+    return conversations.slice(offset, offset + limit);
+  }
+  
+  async getConversation(id: string): Promise<Conversation | null> {
+    const conversations = await readJsonFile<Conversation[]>(CONVERSATIONS_FILE, []);
+    return conversations.find(c => c.id === id) || null;
+  }
+  
+  async getConversationByThreadId(accountId: string, threadId: string): Promise<Conversation | null> {
+    const conversations = await readJsonFile<Conversation[]>(CONVERSATIONS_FILE, []);
+    return conversations.find(c => 
+      c.accountId === accountId && 
+      c.threadIds.includes(threadId)
+    ) || null;
+  }
+  
+  async saveConversation(conversation: Conversation): Promise<void> {
+    const conversations = await readJsonFile<Conversation[]>(CONVERSATIONS_FILE, []);
+    const index = conversations.findIndex(c => c.id === conversation.id);
+    
+    if (index >= 0) {
+      conversations[index] = conversation;
+    } else {
+      conversations.push(conversation);
+    }
+    
+    await writeJsonFile(CONVERSATIONS_FILE, conversations);
+  }
+  
+  async updateConversation(id: string, updates: Partial<Conversation>): Promise<void> {
+    const conversations = await readJsonFile<Conversation[]>(CONVERSATIONS_FILE, []);
+    const index = conversations.findIndex(c => c.id === id);
+    
+    if (index >= 0) {
+      conversations[index] = { ...conversations[index], ...updates };
+      await writeJsonFile(CONVERSATIONS_FILE, conversations);
+    }
+  }
+  
+  async deleteConversation(id: string): Promise<void> {
+    const conversations = await readJsonFile<Conversation[]>(CONVERSATIONS_FILE, []);
+    const filtered = conversations.filter(c => c.id !== id);
+    await writeJsonFile(CONVERSATIONS_FILE, filtered);
+  }
+  
+  async countConversations(filters: ConversationFilters): Promise<number> {
+    const conversations = await this.getConversations({ 
+      ...filters, 
+      limit: undefined, 
+      offset: undefined 
+    });
+    return conversations.length;
+  }
+  
+  async getConversationMessages(conversationId: string): Promise<UnifiedMessage[]> {
+    const messages = await readJsonFile<UnifiedMessage[]>(MESSAGES_FILE, []);
+    const conversationMessages = messages.filter(m => m.conversationId === conversationId);
+    
+    // Sort chronologically (oldest first for conversation view)
+    conversationMessages.sort((a, b) => 
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+    
+    return conversationMessages;
   }
 }
 

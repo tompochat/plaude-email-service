@@ -137,6 +137,40 @@ export interface SyncResponse {
 }
 
 // ============================================================================
+// Conversation Types
+// ============================================================================
+
+export interface Conversation {
+  id: string;
+  accountId: string;
+  clientId: string;
+  subject: string;
+  snippet: string;
+  participants: EmailAddress[];
+  lastSender: EmailAddress;
+  status: 'open' | 'closed' | 'archived';
+  messageCount: number;
+  unreadCount: number;
+  lastMessageAt: string;
+  createdAt: string;
+  closedAt?: string;
+  threadIds: string[];
+}
+
+export interface ConversationWithMessages extends Conversation {
+  messages: Message[];
+}
+
+export interface ConversationFilters {
+  accountId?: string;
+  clientId?: string;
+  status?: 'open' | 'closed' | 'archived';
+  limit?: number;
+  offset?: number;
+  search?: string;
+}
+
+// ============================================================================
 // API Fetch Helper
 // ============================================================================
 
@@ -250,4 +284,45 @@ export const syncApi = {
       method: 'POST',
       body: JSON.stringify({ accountId, maxMessages }),
     }),
+};
+
+// ============================================================================
+// Conversations API
+// ============================================================================
+
+export const conversationsApi = {
+  list: (filters: ConversationFilters = {}): Promise<{
+    conversations: Conversation[];
+    pagination: Pagination;
+  }> => {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined) params.append(key, String(value));
+    });
+    return fetchAPI(`/conversations?${params}`);
+  },
+  
+  get: (id: string): Promise<ConversationWithMessages> =>
+    fetchAPI(`/conversations/${id}`),
+  
+  close: (id: string): Promise<Conversation> =>
+    fetchAPI(`/conversations/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'closed' }),
+    }),
+  
+  reopen: (id: string): Promise<Conversation> =>
+    fetchAPI(`/conversations/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'open' }),
+    }),
+  
+  archive: (id: string): Promise<Conversation> =>
+    fetchAPI(`/conversations/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'archived' }),
+    }),
+  
+  delete: (id: string): Promise<void> =>
+    fetchAPI(`/conversations/${id}`, { method: 'DELETE' }),
 };

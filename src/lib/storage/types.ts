@@ -9,7 +9,9 @@ import {
   UnifiedMessage, 
   SyncState,
   MessageFilters,
-  AttachmentInfo
+  AttachmentInfo,
+  Conversation,
+  ConversationFilters
 } from '@/types';
 
 export interface StorageAdapter {
@@ -113,6 +115,50 @@ export interface StorageAdapter {
    * Get all attachments for a message
    */
   getAttachmentsByMessage(messageId: string): Promise<AttachmentInfo[]>;
+
+  // =========================================================================
+  // Conversation Operations
+  // =========================================================================
+  
+  /**
+   * Get conversations with filters
+   */
+  getConversations(filters: ConversationFilters): Promise<Conversation[]>;
+  
+  /**
+   * Get a single conversation by ID
+   */
+  getConversation(id: string): Promise<Conversation | null>;
+  
+  /**
+   * Find conversation by thread ID (for matching incoming messages)
+   */
+  getConversationByThreadId(accountId: string, threadId: string): Promise<Conversation | null>;
+  
+  /**
+   * Save a conversation (create or update)
+   */
+  saveConversation(conversation: Conversation): Promise<void>;
+  
+  /**
+   * Update conversation (partial update)
+   */
+  updateConversation(id: string, updates: Partial<Conversation>): Promise<void>;
+  
+  /**
+   * Delete a conversation
+   */
+  deleteConversation(id: string): Promise<void>;
+  
+  /**
+   * Count conversations matching filters
+   */
+  countConversations(filters: ConversationFilters): Promise<number>;
+  
+  /**
+   * Get messages for a conversation
+   */
+  getConversationMessages(conversationId: string): Promise<UnifiedMessage[]>;
 }
 
 // ============================================================================

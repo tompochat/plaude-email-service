@@ -3,46 +3,59 @@
 import { useEffect, useState, useCallback } from "react";
 import { RefreshCw, PenSquare, Inbox, ChevronLeft } from "lucide-react";
 import { Header } from "@/components/header";
-import { MessageList } from "@/components/message-list";
-import { MessageDetail } from "@/components/message-detail";
+import { ConversationList } from "@/components/conversation-list";
+import { ConversationView } from "@/components/conversation-view";
 import { ComposeMessage } from "@/components/compose-message";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { messagesApi, accountsApi, syncApi, Message, Account } from "@/lib/api";
+import { 
+  conversationsApi, 
+  accountsApi, 
+  syncApi, 
+  Conversation, 
+  ConversationWithMessages,
+  Account,
+  Message 
+} from "@/lib/api";
 import { cn } from "@/lib/utils/ui";
 import { toast } from "sonner";
 
-type View = "list" | "detail" | "compose";
+type View = "list" | "conversation" | "compose";
+type StatusFilter = "all" | "open" | "closed";
 
 export default function InboxPage() {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
-  const [replyTo, setReplyTo] = useState<Message | undefined>(undefined);
+  const [selectedConversation, setSelectedConversation] = useState<ConversationWithMessages | null>(null);
+  const [replyToMessage, setReplyToMessage] = useState<Message | undefined>(undefined);
   const [view, setView] = useState<View>("list");
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [filterAccountId, setFilterAccountId] = useState<string>("");
+  const [filterStatus, setFilterStatus] = useState<StatusFilter>("open");
+
+  const myEmails = accounts.map(a => a.emailAddress);
 
   const loadData = useCallback(async () => {
     try {
-      const [messagesData, accountsData] = await Promise.all([
-        messagesApi.list({ 
+      const [convData, accountsData] = await Promise.all([
+        conversationsApi.list({ 
           limit: 100,
           accountId: filterAccountId || undefined,
+          status: filterStatus === "all" ? undefined : filterStatus,
         }),
         accountsApi.list(),
       ]);
-      setMessages(messagesData.messages);
+      setConversations(convData.conversations);
       setAccounts(accountsData);
     } catch (err) {
       console.error("Failed to load data:", err);
-      toast.error("Failed to load messages");
+      toast.error("Failed to load conversations");
     } finally {
       setLoading(false);
     }
-  }, [filterAccountId]);
+  }, [filterAccountId, filterStatus]);
 
   useEffect(() => {
     loadData();
@@ -61,57 +74,72 @@ export default function InboxPage() {
     }
   };
 
-  const handleSelectMessage = async (message: Message) => {
-    setSelectedMessage(message);
-    setView("detail");
-    
-    // Mark as read
-    if (!message.isRead) {
-      try {
-        await messagesApi.markAsRead(message.id);
-        setMessages(prev => prev.map(m => 
-          m.id === message.id ? { ...m, isRead: true } : m
-        ));
-      } catch (err) {
-        console.error("Failed to mark as read:", err);
-      }
+  const handleSelectConversation = async (conversation: Conversation) => {
+    try {
+      const full = await conversationsApi.get(conversation.id);
+      setSelectedConversation(full);
+      setView("conversation");
+      
+      // Update the list to reflect read status
+      setConversations(prev => prev.map(c => 
+        c.id === conversation.id ? { ...c, unreadCount: 0 } : c
+      ));
+    } catch (err) {
+      toast.error("Failed to load conversation");
     }
   };
 
-  const handleReply = (message: Message) => {
-    setReplyTo(message);
-    setView("compose");
+  const handleReply = () => {
+    if (selectedConversation && selectedConversation.messages.length > 0) {
+      // Reply to the last message in the conversation
+      const lastMessage = selectedConversation.messages[selectedConversation.messages.length - 1];
+      setReplyToMessage(lastMessage);
+      setView("compose");
+    }
   };
 
   const handleCompose = () => {
-    setReplyTo(undefined);
+    setReplyToMessage(undefined);
+    setSelectedConversation(null);
     setView("compose");
   };
 
-  const handleMessageUpdate = () => {
+  const handleConversationUpdate = () => {
     loadData();
-    setSelectedMessage(null);
+    setSelectedConversation(null);
     setView("list");
   };
 
-  const handleSent = () => {
-    loadData();
-    setReplyTo(undefined);
-    setView("list");
+  const handleSent = async () => {
+    await loadData();
+    setReplyToMessage(undefined);
+    
+    if (selectedConversation) {
+      // Refresh the current conversation
+      try {
+        const full = await conversationsApi.get(selectedConversation.id);
+        setSelectedConversation(full);
+        setView("conversation");
+      } catch {
+        setView("list");
+      }
+    } else {
+      setView("list");
+    }
   };
 
   const handleBack = () => {
     setView("list");
-    setSelectedMessage(null);
+    setSelectedConversation(null);
   };
 
-  const unreadCount = messages.filter(m => !m.isRead).length;
+  const totalUnread = conversations.reduce((sum, c) => sum + c.unreadCount, 0);
 
   return (
     <>
       <Header />
       <main className="h-[calc(100vh-56px)] flex">
-        {/* Left Panel - Message List */}
+        {/* Left Panel - Conversation List */}
         <div className={cn(
           "w-full md:w-96 border-r flex flex-col bg-background",
           view !== "list" && "hidden md:flex"
@@ -131,6 +159,16 @@ export default function InboxPage() {
           {/* Filters */}
           <div className="px-3 py-2 border-b flex items-center gap-2">
             <Select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value as StatusFilter)}
+              className="h-8 text-sm"
+            >
+              <option value="open">Open</option>
+              <option value="closed">Closed</option>
+              <option value="all">All</option>
+            </Select>
+            
+            <Select
               value={filterAccountId}
               onChange={(e) => setFilterAccountId(e.target.value)}
               className="flex-1 h-8 text-sm"
@@ -147,29 +185,29 @@ export default function InboxPage() {
           {/* Stats */}
           <div className="px-4 py-2 text-sm text-muted-foreground border-b flex items-center gap-2">
             <Inbox className="h-4 w-4" />
-            <span>{messages.length} messages</span>
-            {unreadCount > 0 && (
-              <span className="text-primary font-medium">({unreadCount} unread)</span>
+            <span>{conversations.length} conversations</span>
+            {totalUnread > 0 && (
+              <span className="text-primary font-medium">({totalUnread} unread)</span>
             )}
           </div>
 
-          {/* Message List */}
+          {/* Conversation List */}
           <div className="flex-1 overflow-auto">
             {loading ? (
               <div className="flex items-center justify-center py-12">
                 <Spinner size="lg" />
               </div>
             ) : (
-              <MessageList
-                messages={messages}
-                selectedId={selectedMessage?.id}
-                onSelect={handleSelectMessage}
+              <ConversationList
+                conversations={conversations}
+                selectedId={selectedConversation?.id}
+                onSelect={handleSelectConversation}
               />
             )}
           </div>
         </div>
 
-        {/* Right Panel - Detail/Compose */}
+        {/* Right Panel - Conversation/Compose */}
         <div className={cn(
           "flex-1 flex flex-col",
           view === "list" && "hidden md:flex"
@@ -184,29 +222,30 @@ export default function InboxPage() {
             </div>
           )}
 
-          {view === "list" && !selectedMessage && (
+          {view === "list" && (
             <div className="flex-1 flex items-center justify-center text-muted-foreground">
               <div className="text-center">
                 <Inbox className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p className="text-lg font-medium">No message selected</p>
-                <p className="text-sm mt-1">Select a message to read</p>
+                <p className="text-lg font-medium">No conversation selected</p>
+                <p className="text-sm mt-1">Select a conversation to view</p>
               </div>
             </div>
           )}
           
-          {view === "detail" && selectedMessage && (
-            <MessageDetail
-              message={selectedMessage}
+          {view === "conversation" && selectedConversation && (
+            <ConversationView
+              conversation={selectedConversation}
               onReply={handleReply}
-              onUpdate={handleMessageUpdate}
+              onUpdate={handleConversationUpdate}
+              myEmails={myEmails}
             />
           )}
           
           {view === "compose" && (
             <ComposeMessage
-              replyTo={replyTo}
+              replyTo={replyToMessage}
               accounts={accounts}
-              onClose={() => setView(selectedMessage ? "detail" : "list")}
+              onClose={() => setView(selectedConversation ? "conversation" : "list")}
               onSent={handleSent}
             />
           )}

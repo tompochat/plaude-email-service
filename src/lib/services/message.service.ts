@@ -8,6 +8,7 @@ import { getStorage } from '@/lib/storage';
 import { getProvider } from '@/lib/providers';
 import { accountService } from './account.service';
 import { attachmentService } from './attachment.service';
+import { conversationService } from './conversation.service';
 import { 
   UnifiedMessage, 
   SendMessageRequest, 
@@ -214,6 +215,23 @@ class MessageService {
     // Save sent message
     await this.storage.saveMessage(outgoingMessage);
     
+    // Assign to conversation
+    try {
+      const conversation = await conversationService.findOrCreateConversation(outgoingMessage);
+      
+      // Update message with conversation ID
+      await this.storage.updateMessage(messageId, { 
+        conversationId: conversation.id 
+      });
+      
+      // If not the first message, update conversation stats
+      if (conversation.messageCount > 1) {
+        await conversationService.addMessageToConversation(conversation.id, outgoingMessage);
+      }
+    } catch (convError) {
+      console.error('Failed to assign conversation to sent message:', convError);
+    }
+    
     // If this was a reply, update original message status
     if (request.inReplyTo) {
       await this.storage.updateMessage(request.inReplyTo, {
@@ -239,20 +257,45 @@ class MessageService {
    * Mark message as read
    */
   async markAsRead(id: string): Promise<void> {
+    const message = await this.storage.getMessage(id);
+    if (!message) return;
+    
+    const wasUnread = !message.isRead;
+    
     await this.storage.updateMessage(id, {
       isRead: true,
       status: 'read',
     });
+    
+    // Update conversation unread count
+    if (wasUnread && message.conversationId) {
+      await conversationService.decrementUnreadCount(message.conversationId);
+    }
   }
   
   /**
    * Mark message as unread
    */
   async markAsUnread(id: string): Promise<void> {
+    const message = await this.storage.getMessage(id);
+    if (!message) return;
+    
+    const wasRead = message.isRead;
+    
     await this.storage.updateMessage(id, {
       isRead: false,
       status: 'new',
     });
+    
+    // Update conversation unread count
+    if (wasRead && message.conversationId) {
+      const conversation = await this.storage.getConversation(message.conversationId);
+      if (conversation) {
+        await this.storage.updateConversation(message.conversationId, {
+          unreadCount: conversation.unreadCount + 1
+        });
+      }
+    }
   }
   
   /**
@@ -278,6 +321,8 @@ class MessageService {
       throw new Error('Message not found');
     }
     
+    const conversationId = message.conversationId;
+    
     // Delete attachments from filesystem
     if (message.hasAttachments) {
       await attachmentService.deleteMessageAttachments(
@@ -288,6 +333,11 @@ class MessageService {
     
     // Delete message record
     await this.storage.deleteMessage(id);
+    
+    // Recalculate conversation stats (or delete if no messages left)
+    if (conversationId) {
+      await conversationService.recalculateStats(conversationId);
+    }
   }
   
   // =========================================================================

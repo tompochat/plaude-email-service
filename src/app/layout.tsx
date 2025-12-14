@@ -8,6 +8,9 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Mail Service",
   description: "Multi-account email management",
+  icons: {
+    icon: "/icon.svg",
+  },
 };
 
 export default function RootLayout({
